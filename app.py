@@ -1,47 +1,67 @@
 import os
 import requests
-import json
 from flask import Flask, request, jsonify
-
-# Cargar claves de API desde variables de entorno
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 app = Flask(__name__)
 
+# Claves de API desde variables de entorno
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+YOUTUBE_OAUTH_TOKEN = os.getenv("YOUTUBE_OAUTH_TOKEN")  # Token OAuth
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+
+
 def obtener_id_subtitulos(video_id):
-    """Obtiene el ID del subtítulo (ASR si está disponible, sino standard)."""
+    """Obtiene el ID de los subtítulos estándar (o ASR si no hay estándar)."""
     url = f"https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId={video_id}&key={YOUTUBE_API_KEY}"
     response = requests.get(url)
     data = response.json()
 
     if "items" in data:
+        standard_id = None
+        asr_id = None
+
         for item in data["items"]:
             track_kind = item["snippet"]["trackKind"]
             language = item["snippet"]["language"]
             caption_id = item["id"]
 
-            # Prioriza subtítulos ASR en español
-            if track_kind == "asr" and language == "es":
-                return caption_id
+            print(f"Subtítulo encontrado: {caption_id} - Tipo: {track_kind} - Idioma: {language}")
 
-        # Si no hay ASR, devuelve el primero disponible
-        return data["items"][0]["id"]
+            if track_kind == "standard" and language.startswith("es"):
+                standard_id = caption_id  # Guarda el ID del subtítulo estándar en español
+            elif track_kind == "asr" and language.startswith("es"):
+                asr_id = caption_id  # Guarda el ID del subtítulo automático en español
 
+        # Priorizar subtítulos estándar
+        if standard_id:
+            print(f"Usando subtítulo estándar: {standard_id}")
+            return standard_id
+        elif asr_id:
+            print(f"Usando subtítulo ASR: {asr_id}")
+            return asr_id
+
+    print("No se encontraron subtítulos.")
     return None
 
 
 def descargar_subtitulos(caption_id):
-    """Descarga los subtítulos usando el ID obtenido"""
-    url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=srt&key={YOUTUBE_API_KEY}"
-    response = requests.get(url)
+    """Descarga los subtítulos usando OAuth."""
+    url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=srt"
+    headers = {
+        "Authorization": f"Bearer {YOUTUBE_OAUTH_TOKEN}"
+    }
+
+    response = requests.get(url, headers=headers)
 
     if response.status_code == 200:
-        return response.text
-    return None
+        return response.text  # Retorna los subtítulos en formato SRT
+    else:
+        print("Error al descargar subtítulos:", response.text)
+        return None
+
 
 def obtener_resumen(subtitulos):
-    """Envía los subtítulos a DeepSeek AI para generar un resumen"""
+    """Envía los subtítulos a DeepSeek AI para generar un resumen."""
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
@@ -60,11 +80,14 @@ def obtener_resumen(subtitulos):
 
     if response.status_code == 200:
         return response.json()["choices"][0]["message"]["content"]
-    return None
+    else:
+        print("Error al generar resumen:", response.text)
+        return None
+
 
 @app.route("/procesar-video", methods=["POST"])
 def procesar_video():
-    """Recibe un video ID, obtiene subtítulos y genera un resumen"""
+    """Recibe un video ID, obtiene subtítulos y genera un resumen."""
     data = request.get_json()
     video_id = data.get("video_id")
 
@@ -84,6 +107,7 @@ def procesar_video():
         return jsonify({"error": "Error al generar el resumen"}), 500
 
     return jsonify({"resumen": resumen})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
