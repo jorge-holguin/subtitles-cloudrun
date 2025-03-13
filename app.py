@@ -10,14 +10,26 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 app = Flask(__name__)
 
 def obtener_id_subtitulos(video_id):
-    """Obtiene el ID de los subtítulos de un video"""
+    """Obtiene el ID del subtítulo (ASR si está disponible, sino standard)."""
     url = f"https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId={video_id}&key={YOUTUBE_API_KEY}"
     response = requests.get(url)
     data = response.json()
 
     if "items" in data:
+        for item in data["items"]:
+            track_kind = item["snippet"]["trackKind"]
+            language = item["snippet"]["language"]
+            caption_id = item["id"]
+
+            # Prioriza subtítulos ASR en español
+            if track_kind == "asr" and language == "es":
+                return caption_id
+
+        # Si no hay ASR, devuelve el primero disponible
         return data["items"][0]["id"]
+
     return None
+
 
 def descargar_subtitulos(caption_id):
     """Descarga los subtítulos usando el ID obtenido"""
