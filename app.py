@@ -4,35 +4,35 @@ import requests
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
 
-# Configurar logging para Cloud Run
-logging.basicConfig(level=logging.INFO)
-
 app = Flask(__name__)
+
+logging.basicConfig(level=logging.INFO)
 
 # API Key de DeepSeek desde variables de entorno
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
+# Obtener el Proxy desde las variables de entorno
+BRIGHT_DATA_PROXY = os.getenv("BRIGHT_DATA_PROXY")
+
+# Configurar los proxies si la variable está definida
+proxies = {"http": BRIGHT_DATA_PROXY, "https": BRIGHT_DATA_PROXY} if BRIGHT_DATA_PROXY else None
 
 def obtener_transcripcion(video_id):
-    """
-    Obtiene la transcripción automática de un video de YouTube sin usar OAuth.
-    Si no hay subtítulos en español, intenta obtenerlos en cualquier idioma.
-    """
+    """Obtiene la transcripción del video de YouTube pasando por el proxy de Bright Data."""
     try:
         logging.info(f"Intentando obtener transcripción en español para el video: {video_id}")
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['es'])
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['es'], proxies=proxies)
     except:
         try:
             logging.info(f"No se encontró transcripción en español. Intentando en cualquier idioma...")
-            transcript = YouTubeTranscriptApi.get_transcript(video_id)
+            transcript = YouTubeTranscriptApi.get_transcript(video_id, proxies=proxies)
         except Exception as e:
-            logging.error(f"Error al obtener la transcripción del video {video_id}: {str(e)}")
+            logging.error(f"🚨 Error al obtener la transcripción a través de Bright Data: {str(e)}")
             return None
 
     texto_completo = "\n".join([t["text"] for t in transcript])
     logging.info("✅ Transcripción obtenida correctamente.")
     return texto_completo
-
 
 def obtener_resumen(subtitulos):
     """
