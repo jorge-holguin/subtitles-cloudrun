@@ -11,28 +11,36 @@ logging.basicConfig(level=logging.INFO)
 # API Key de DeepSeek desde variables de entorno
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
-# Obtener el Proxy desde las variables de entorno
-BRIGHT_DATA_PROXY = os.getenv("BRIGHT_DATA_PROXY")
+# Configurar ScraperAPI como Proxy
+SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
+SCRAPERAPI_PROXY = f"http://scraperapi:{SCRAPERAPI_KEY}@proxy-server.scraperapi.com:8001" if SCRAPERAPI_KEY else None
 
-# Configurar los proxies si la variable está definida
-proxies = {"http": BRIGHT_DATA_PROXY, "https": BRIGHT_DATA_PROXY} if BRIGHT_DATA_PROXY else None
+proxies = {"http": SCRAPERAPI_PROXY, "https": SCRAPERAPI_PROXY} if SCRAPERAPI_PROXY else None
+
 
 def obtener_transcripcion(video_id):
-    """Obtiene la transcripción del video de YouTube pasando por el proxy de Bright Data."""
+    """
+    Obtiene la transcripción del video de YouTube usando ScraperAPI como proxy.
+    """
+    if not SCRAPERAPI_KEY:
+        logging.error("🚨 No se encontró la API Key de ScraperAPI. Configura la variable de entorno.")
+        return None
+
     try:
-        logging.info(f"Intentando obtener transcripción en español para el video: {video_id}")
+        logging.info(f"🔎 Buscando transcripción en español para el video: {video_id}")
         transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['es'], proxies=proxies)
     except:
         try:
-            logging.info(f"No se encontró transcripción en español. Intentando en cualquier idioma...")
+            logging.info(f"⚠️ No se encontró en español. Buscando en cualquier idioma...")
             transcript = YouTubeTranscriptApi.get_transcript(video_id, proxies=proxies)
         except Exception as e:
-            logging.error(f"🚨 Error al obtener la transcripción a través de Bright Data: {str(e)}")
+            logging.error(f"🚨 Error al obtener la transcripción a través de ScraperAPI: {str(e)}")
             return None
 
     texto_completo = "\n".join([t["text"] for t in transcript])
     logging.info("✅ Transcripción obtenida correctamente.")
     return texto_completo
+
 
 def obtener_resumen(subtitulos):
     """
@@ -76,19 +84,19 @@ def procesar_video():
     video_id = data.get("video_id")
 
     if not video_id:
-        return jsonify({"error": "No se proporcionó un video_id"}), 400
+        return jsonify({"error": "❌ No se proporcionó un video_id"}), 400
 
     logging.info(f"📥 Procesando video: {video_id}")
 
     transcripcion = obtener_transcripcion(video_id)
     if not transcripcion:
-        return jsonify({"error": "No se pudo obtener la transcripción"}), 500
+        return jsonify({"error": "❌ No se pudo obtener la transcripción"}), 500
 
     resumen = obtener_resumen(transcripcion)
     if not resumen:
-        return jsonify({"error": "Error al generar el resumen"}), 500
+        return jsonify({"error": "❌ Error al generar el resumen"}), 500
 
-    return jsonify({"resumen": resumen})
+    return jsonify({"video_id": video_id, "resumen": resumen})
 
 
 if __name__ == "__main__":
