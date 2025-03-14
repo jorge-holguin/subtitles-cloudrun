@@ -1,27 +1,47 @@
 import os
+import logging
 import requests
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
 
+# Configurar logging para Cloud Run
+logging.basicConfig(level=logging.INFO)
+
 app = Flask(__name__)
 
-# Clave de API de DeepSeek para resumir el texto
+# API Key de DeepSeek desde variables de entorno
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 
 def obtener_transcripcion(video_id):
-    """Obtiene la transcripción automática de un video de YouTube sin usar OAuth."""
+    """
+    Obtiene la transcripción automática de un video de YouTube sin usar OAuth.
+    Si no hay subtítulos en español, intenta obtenerlos en cualquier idioma.
+    """
     try:
+        logging.info(f"Intentando obtener transcripción en español para el video: {video_id}")
         transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['es'])
-        texto_completo = "\n".join([t["text"] for t in transcript])
-        return texto_completo
-    except Exception as e:
-        print("Error al obtener la transcripción:", str(e))
-        return None
+    except:
+        try:
+            logging.info(f"No se encontró transcripción en español. Intentando en cualquier idioma...")
+            transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        except Exception as e:
+            logging.error(f"Error al obtener la transcripción del video {video_id}: {str(e)}")
+            return None
+
+    texto_completo = "\n".join([t["text"] for t in transcript])
+    logging.info("✅ Transcripción obtenida correctamente.")
+    return texto_completo
 
 
 def obtener_resumen(subtitulos):
-    """Envía la transcripción a DeepSeek AI para generar un resumen."""
+    """
+    Envía la transcripción a DeepSeek AI para generar un resumen.
+    """
+    if not DEEPSEEK_API_KEY:
+        logging.error("🚨 No se encontró la API Key de DeepSeek. Configura la variable de entorno.")
+        return None
+
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
@@ -36,23 +56,29 @@ def obtener_resumen(subtitulos):
         "stream": False
     }
 
-    response = requests.post("https://api.deepseek.com/chat/completions", headers=headers, json=data)
-
-    if response.status_code == 200:
-        return response.json()["choices"][0]["message"]["content"]
-    else:
-        print("Error al generar resumen:", response.text)
+    try:
+        response = requests.post("https://api.deepseek.com/chat/completions", headers=headers, json=data)
+        response.raise_for_status()
+        resumen = response.json()["choices"][0]["message"]["content"]
+        logging.info("✅ Resumen generado correctamente.")
+        return resumen
+    except Exception as e:
+        logging.error(f"🚨 Error al generar resumen con DeepSeek: {str(e)}")
         return None
 
 
 @app.route("/procesar-video", methods=["POST"])
 def procesar_video():
-    """Recibe un video ID, obtiene transcripción y genera un resumen."""
+    """
+    Recibe un video ID, obtiene la transcripción y genera un resumen con IA.
+    """
     data = request.get_json()
     video_id = data.get("video_id")
 
     if not video_id:
         return jsonify({"error": "No se proporcionó un video_id"}), 400
+
+    logging.info(f"📥 Procesando video: {video_id}")
 
     transcripcion = obtener_transcripcion(video_id)
     if not transcripcion:
