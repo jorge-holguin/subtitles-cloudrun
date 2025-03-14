@@ -1,5 +1,6 @@
 import os
 import logging
+import random
 import requests
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -11,36 +12,42 @@ logging.basicConfig(level=logging.INFO)
 # API Key de DeepSeek desde variables de entorno
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
-# Configurar ScraperAPI como Proxy
-SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
-SCRAPERAPI_PROXY = f"http://scraperapi:{SCRAPERAPI_KEY}@proxy-server.scraperapi.com:8001" if SCRAPERAPI_KEY else None
+# Lista de proxies de Webshare.io (Pega aquí tus proxies)
+PROXIES_LIST = [
+    "http://bzdgdeyv:y4ggqycpywv5@38.154.227.167:5868",
+    "http://bzdgdeyv:y4ggqycpywv5@38.153.152.244:9594",
+    "http://bzdgdeyv:y4ggqycpywv5@86.38.234.176:6630",
+    "http://bzdgdeyv:y4ggqycpywv5@173.211.0.148:6641",
+    "http://bzdgdeyv:y4ggqycpywv5@161.123.152.115:6360",
+    "http://bzdgdeyv:y4ggqycpywv5@216.10.27.159:6837",
+    "http://bzdgdeyv:y4ggqycpywv5@64.64.118.149:6732",
+    "http://bzdgdeyv:y4ggqycpywv5@104.239.105.125:6655",
+    "http://bzdgdeyv:y4ggqycpywv5@166.88.58.10:5735",
+    "http://bzdgdeyv:y4ggqycpywv5@45.151.162.198:6600",
+]
 
-proxies = {"http": SCRAPERAPI_PROXY, "https": SCRAPERAPI_PROXY} if SCRAPERAPI_PROXY else None
-
+def obtener_proxy():
+    """Selecciona un proxy aleatorio de la lista."""
+    proxy_url = random.choice(PROXIES_LIST)
+    return {"http": proxy_url, "https": proxy_url}
 
 def obtener_transcripcion(video_id):
     """
-    Obtiene la transcripción del video de YouTube usando ScraperAPI como proxy.
+    Obtiene la transcripción del video de YouTube usando Webshare.io.
     """
-    if not SCRAPERAPI_KEY:
-        logging.error("🚨 No se encontró la API Key de ScraperAPI. Configura la variable de entorno.")
-        return None
-
-    try:
-        logging.info(f"🔎 Buscando transcripción en español para el video: {video_id}")
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['es'], proxies=proxies)
-    except:
+    for _ in range(3):  # Intentar hasta 3 veces con diferentes proxies
+        proxy = obtener_proxy()
         try:
-            logging.info(f"⚠️ No se encontró en español. Buscando en cualquier idioma...")
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, proxies=proxies)
+            logging.info(f"🔎 Intentando obtener transcripción con proxy: {proxy}")
+            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['es'], proxies=proxy)
+            texto_completo = "\n".join([t["text"] for t in transcript])
+            logging.info("✅ Transcripción obtenida correctamente.")
+            return texto_completo
         except Exception as e:
-            logging.error(f"🚨 Error al obtener la transcripción a través de ScraperAPI: {str(e)}")
-            return None
-
-    texto_completo = "\n".join([t["text"] for t in transcript])
-    logging.info("✅ Transcripción obtenida correctamente.")
-    return texto_completo
-
+            logging.warning(f"⚠️ Fallo al obtener transcripción con este proxy: {str(e)}")
+    
+    logging.error("🚨 No se pudo obtener la transcripción después de múltiples intentos.")
+    return None
 
 def obtener_resumen(subtitulos):
     """
@@ -74,7 +81,6 @@ def obtener_resumen(subtitulos):
         logging.error(f"🚨 Error al generar resumen con DeepSeek: {str(e)}")
         return None
 
-
 @app.route("/procesar-video", methods=["POST"])
 def procesar_video():
     """
@@ -97,7 +103,6 @@ def procesar_video():
         return jsonify({"error": "❌ Error al generar el resumen"}), 500
 
     return jsonify({"video_id": video_id, "resumen": resumen})
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
